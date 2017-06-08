@@ -1,51 +1,34 @@
 from collections import Counter
 from datetime import datetime
-import mysql.connector
+import sqlite3
 from time import strftime
 
+DB_LOCATION = 'db.sqlite'
 
 class database:
 
-	def __init__(self):
-		self.connection = mysql.connector.connect(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, db=DB_DB)
+	def __init__(self, location=DB_LOCATION):
+		self.connection = sqlite3.connect(location)
 		self.cursor = self.connection.cursor()
 
 
-	def reconnect(self):
-		self.connection = mysql.connector.connect(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, db=DB_DB)
-		self.cursor = self.connection.cursor()
-
-
-	def add_query(self, row):
-		self.reconnect()
-		self.cursor.execute("INSERT INTO Activities VALUES (NULL, '%d', '%s', '%s', '%s');" % (row[0], row[1], row[2], row[3]))
+	def save_user_mess(self, row):
+		self.cursor.execute("INSERT INTO user_messages VALUES (NULL, '%d', '%s', '%s');" % (row[0], row[1], row[2]))
 		self.connection.commit()
 		self.connection.close()
 
 
-	def get_latest_news_seen_by_id(self, chat_id):
-		self.reconnect()
-		self.cursor.execute('SELECT bot_answer FROM `Activities` WHERE chat_id=%d AND mess="Что нового?" ORDER BY time DESC limit 1' % chat_id)
-		try:
-			latest_news = self.cursor.fetchall()[0][0]
-		except:
-			latest_news = ''
-		return latest_news
-		self.connection.close()
-
-
 	def get_chat_stat(self, chat_id):
-		self.reconnect()
 
 		#1) all history
-		self.cursor.execute('SELECT * FROM Activities WHERE chat_id=%d' % chat_id)
+		self.cursor.execute('SELECT * FROM user_messages WHERE chat_id=%d' % chat_id)
 		rows = self.cursor.fetchall()
 		messages = [query[2] for query in rows]
 		counts = Counter(messages)
 		result = 'Total requests:\n' + ("\n".join(['{}: {} times'.format(k,v) for k,v in sorted(counts.items())]))
 
 		#2) history for 24 hours
-		self.cursor.execute('SELECT * FROM `Activities` WHERE time > now() - interval 1 day AND chat_id=%d' % chat_id)
+		self.cursor.execute("SELECT * FROM user_messages WHERE time > date('now','-1 day') AND chat_id=%d" % chat_id)
 		rows = self.cursor.fetchall()
 		messages = [query[2] for query in rows]
 		counts = Counter(messages)
@@ -55,21 +38,24 @@ class database:
 		return result
 
 
+	def get_user_ids(self):
+		self.cursor.execute('SELECT DISTINCT chat_id FROM user_messages;')
+		return self.cursor.fetchall()
+
+
 def remind(bot,job):
 
-	INTERVAL = 60
-	TIME_PASSED = 300
+	INTERVAL = 120
+	TIME_PASSED = 21600
 
 	db = database()
-	db.cursor.execute('SELECT chat_id, max(time) as max_time from Activities WHERE mess != "" group by chat_id;')
+	db.cursor.execute('SELECT chat_id, max(time) as max_time from user_messages WHERE mess != "" group by chat_id;')
 	rows = db.cursor.fetchall()
-
 	curr_time = datetime.now()
 	for row in rows:
-		datediff = curr_time - row[1]
+		datediff = curr_time - datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")
 		if datediff.days == 0:
 			if (datediff.seconds >= TIME_PASSED) and (datediff.seconds < TIME_PASSED + INTERVAL):
-				result = "У меня появились свежие новости! Приходи почитать!"
+				result = "У меня появились свежие новости! Приходи почитать! ✌✌✌"
 				bot.sendMessage(chat_id=row[0], text=result)
-				db.add_query([row[0], '', result, strftime("%Y-%m-%d %H:%M:%S")])
 	return(rows)

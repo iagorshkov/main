@@ -1,20 +1,21 @@
-import mysql.connector
 import db
 import news
-import social
+import news_dump
 import os
+import tools
+import json
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Job, CallbackQueryHandler
 from telegram import replykeyboardmarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from time import strftime
+from datetime import time
+import locale
 
 os.environ['TZ'] = 'Europe/Moscow'
+locale.setlocale(locale.LC_ALL, 'en_US.utf8')
+
+keyboard = replykeyboardmarkup.ReplyKeyboardMarkup([['Новое', 'Главное', '🎲🎲']], resize_keyboard=1)
 
 
-keyboard = replykeyboardmarkup.ReplyKeyboardMarkup([['Что нового?', 'Что интересного?', 'Поговори со мной']], resize_keyboard=1)
-
-
-
-#Hadlers:
 def start(bot, update):
 	bot.sendMessage(chat_id=update.message.chat_id, text="Привет! Я новостной бот! Вот, на что я умею отвечать:", reply_markup=keyboard)
 
@@ -23,59 +24,73 @@ def get_stat(bot, update):
 	bot.sendMessage(chat_id=update.message.chat_id, text=db.database().get_chat_stat(update.message.chat_id), reply_markup=keyboard)
 
 
+def do_news_dump(bot, update):
+	user_id = update.message.chat_id
+	if user_id == 451162:
+		news_dump.send_news()
+		bot.sendMessage(chat_id=user_id, text='Successful')
+
+
 def messages(bot, update):
 
-	database = db.database()
+	db.database().save_user_mess([update.message.chat_id, update.message.text, strftime("%Y-%m-%d %H:%M:%S")])
 
-	if update.message.text == 'Что нового?':
-		result = news.get_random_news(update.message.chat_id, use_db=True)
-		database.add_query([update.message.chat_id, update.message.text, result, strftime("%Y-%m-%d %H:%M:%S")])
-		bot.sendMessage(chat_id=update.message.chat_id, text = result, reply_markup=keyboard)
+	if update.message.text == 'Новое':
+		text = news.get_random_news()
+		bot.sendMessage(chat_id=update.message.chat_id, text = text, parse_mode='html', disable_web_page_preview=1,
+			reply_markup=keyboard)
 
-	elif update.message.text == 'Что интересного?':
-		top_tags = news.get_tags()
-		tags_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(top_tags[0], callback_data=top_tags[0]),
-                 InlineKeyboardButton(top_tags[1], callback_data=top_tags[1]),
-                 InlineKeyboardButton(top_tags[2], callback_data=top_tags[2])],
-                 [InlineKeyboardButton(top_tags[3], callback_data=top_tags[3]), 
-                 InlineKeyboardButton(top_tags[4], callback_data=top_tags[4])]])
-		update.message.reply_text('Обсуждают прямо сейчас (кликните, чтоб получить новость по тегу):', reply_markup=tags_keyboard)
+	elif update.message.text == 'Главное':
+		headers = news.get_hot_news()
+		more_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Еще", callback_data='More')]])
+		bot.sendMessage(chat_id=update.message.chat_id, text = headers, reply_markup=more_keyboard, parse_mode='html',
+			disable_web_page_preview=1)
 
-	elif update.message.text == 'Поговори со мной':
-		result = social.start_talk()
-		database.add_query([update.message.chat_id, update.message.text, result, strftime("%Y-%m-%d %H:%M:%S")])
-		bot.sendMessage(chat_id=update.message.chat_id, text = result, reply_markup=keyboard)
+	elif update.message.text == '🎲🎲':
+		text = news.get_rare()
+		bot.sendMessage(chat_id=update.message.chat_id, text = text, parse_mode='html',
+			disable_web_page_preview=1, reply_markup=keyboard)
 
 
 def button(bot, update):
-	result = news.get_news_by_tag(update.callback_query.data)
-	bot.sendMessage(chat_id=update.callback_query.message.chat.id, text=result, reply_markup=keyboard)
+	headers = news.get_other_hot_news()
+	bot.sendMessage(chat_id=update.callback_query.message.chat.id, text = headers, reply_markup=keyboard, parse_mode='html',
+		disable_web_page_preview=1)
 
+
+def update_all(bot, update):
+	news.upd_news()
+	news.update_clusters()
+	news.set_hot_news()
+
+
+def good_morning(bot, update):
+	user_ids = db.database().get_user_ids()
+	for user_id in user_ids:
+		bot.sendMessage(chat_id=user_id[0], text=tools.good_morning(), reply_markup=keyboard, parse_mode='html',
+			disable_web_page_preview=1)
 
 
 def main():
-
-	updater = Updater(token='318966182:AAFETX_PVNor5CXXEROgJMMQsCbeL_dnekI')
+	with open('config.json', 'r') as file:
+		TOKEN = json.loads(file.read())['bot_token']
+	updater = Updater(token=TOKEN)
 	dispatcher = updater.dispatcher
 	
-
 	dispatcher.add_handler(CommandHandler('start', start))
 	dispatcher.add_handler(CommandHandler('stat', get_stat))
+	dispatcher.add_handler(CommandHandler('dump', do_news_dump))
 	dispatcher.add_handler(MessageHandler(Filters.text, messages))
 	dispatcher.add_handler(CallbackQueryHandler(button))
 
-
 	job_queue = updater.job_queue
 
+	REMINDER_PERIOD = 120.0
 
-	REMINDER_PERIOD = 60.0
-	reminder = Job(db.remind, REMINDER_PERIOD)
-	job_minute = Job(news.upd_news, 60.0)
-
-
-	job_queue.put(job_minute, next_t=0.0)
-	job_queue.put(reminder, next_t=0.0)
-
+	job_queue.put(Job(db.remind, REMINDER_PERIOD), next_t=0.0)
+	job_queue.put(Job(update_all, 900.0), next_t=0.0)
+	job_queue.run_daily(tools.upd_dollar_rate_and_weather, time(hour=5, minute=50))
+	job_queue.run_daily(good_morning, time(hour=6))
 
 	updater.start_polling()
 
