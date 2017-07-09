@@ -34,12 +34,12 @@ def do_news_dump(bot, update):
 
 def messages(bot, update):
 
-	with open('config.json', 'r') as file:
-		botan_token = json.loads(file.read())['botan_token']
-	uid = update.message.chat_id
-	message_dict = update.message.to_dict()
-	event_name = update.message.text
-	botan.track(botan_token, uid, message_dict, event_name)
+	#with open('config.json', 'r') as file:
+	#	botan_token = json.loads(file.read())['botan_token']
+	#uid = update.message.chat_id
+	#message_dict = update.message.to_dict()
+	#event_name = update.message.text
+	#botan.track(botan_token, uid, message_dict, event_name)
 
 	db.database().save_user_mess([update.message.chat_id, update.message.text, strftime("%Y-%m-%d %H:%M:%S")])
 
