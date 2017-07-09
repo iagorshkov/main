@@ -11,11 +11,6 @@ with open('config.json', 'r') as file:
 	DB_USER = json.loads(text)['DB_USER']
 	DB_PASSWORD = json.loads(text)['DB_PASSWORD']
 
-DB_HOST = "ec2-23-21-220-48.compute-1.amazonaws.com"
-DB_NAME = "d73bdkrptlb9je"
-DB_USER = "dgpbnpnqukrzzo"
-DB_PASSWORD = "1be32a7d449ca8a9a2208ccaa6f48223326c9759e941a17f2b9117e8c632e701"
-
 class database:
 
 	def __init__(self):
