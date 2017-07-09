@@ -13,6 +13,7 @@ from random import choice
 from scipy.cluster.hierarchy import fcluster, linkage
 from newspaper import Article
 import re
+import botan
 
 
 NEWS_LOCATION = 'data/news.csv'
@@ -102,8 +103,10 @@ def upd_news():
 			if datetime.now() - datetime.strptime(news[5], "%d %b %Y %H:%M:%S") < timedelta(days=1):
 				article = Article(news[2], language='ru')
 				article.download()
-				if article.is_downloaded:
+				try:
 					article.parse()
+				except:
+					pass
 				news.append(article.text)
 				news.append(normal_form(article.text))
 				if (('cluster' in news_file.columns) & ('hot_topic' in news_file.columns)):
@@ -112,7 +115,9 @@ def upd_news():
 				counter += 1
 
 	news_file.drop_duplicates('link', inplace = True)
-
+	news_file['date'] = news_file['date'].astype('str')
+	news_file = news_file[[len(date) > 7 for date in news_file['date'].values]]
+	news_file['date'] = pd.to_datetime(news_file['date'])
 	news_file['date'] = pd.to_datetime(news_file['date'])
 	news_file = news_file[news_file['date'] > datetime.now() - timedelta(days=1)]
 
@@ -138,7 +143,7 @@ def get_hot_news():
 	for c in range(len(hot)):
 		news_start, news_other = represent_news(hot[c][0])
 		news.append('▶ <a href="%s">%s</a> %s' % (hot[c][2], news_start, news_other))
-	return '⚡⚡⚡Главное на данный момент:⚡⚡⚡\n\n' + '\n\n'.join(news)
+	return '\n\n'.join(news)
 
 
 def get_other_hot_news():
@@ -224,18 +229,24 @@ def get_random_news():
 	news_file = news_file.sort_values('date', ascending=False).head(30)
 	rand_news = news_file.sample().values[0]
 	news_start, news_other = represent_news(rand_news[0])
-	return '🆕 %s, %s: <a href="%s">%s</a> %s' % (rand_news[5].strftime('%Y-%m-%d %H:%M'), rand_news[6],
-		rand_news[2], news_start, news_other)
+	news_words = rand_news[7].split()
+	full_text = '    ' + ' '.join(news_words[:100])
+	if len(news_words) > 100:
+		full_text += '... <a href="%s">Читать далее</a>' % (rand_news[2])
+	return '🆕 %s, %s: <a href="%s">%s</a> %s \n\n%s' % (rand_news[5].strftime('%Y-%m-%d %H:%M'), rand_news[6],
+		rand_news[2], news_start, news_other,  full_text)
 
 
-def get_rare():
+def get_rare(chat_id=None):
 	df = pd.read_csv(NEWS_LOCATION, header=0)
 	df = df.fillna('')
 	df = df[~df['text'].str.contains('Порошенко|Украин|Трамп')]
 	df['date'] = pd.to_datetime(df['date'])
 	rand_news =  df[df['cluster'] == choice(np.argsort(np.unique(df['cluster'].values, return_counts=True)[1])[:10])].sample().values[0]
 	news_start, news_other = represent_news(rand_news[0])
-	return '🆒 %s, %s: <a href="%s">%s</a> %s' % (rand_news[5].strftime('%Y-%m-%d %H:%M'), rand_news[6],
-		rand_news[2], news_start, news_other)
-
-print(get_rare())
+	news_words = rand_news[7].split()
+	full_text = '    ' + ' '.join(news_words[:100])
+	if len(news_words) > 100:
+		full_text += '... <a href="%s">Читать далее</a>' % (rand_news[2])
+	return '🆕 %s, %s: <a href="%s">%s</a> %s \n\n%s' % (rand_news[5].strftime('%Y-%m-%d %H:%M'), rand_news[6],
+		rand_news[2], news_start, news_other,  full_text)

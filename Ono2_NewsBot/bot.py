@@ -9,6 +9,7 @@ from telegram import replykeyboardmarkup, InlineKeyboardButton, InlineKeyboardMa
 from time import strftime
 from datetime import time
 import locale
+import botan
 
 os.environ['TZ'] = 'Europe/Moscow'
 locale.setlocale(locale.LC_ALL, 'en_US.utf8')
@@ -33,29 +34,50 @@ def do_news_dump(bot, update):
 
 def messages(bot, update):
 
+	with open('config.json', 'r') as file:
+		botan_token = json.loads(file.read())['botan_token']
+	uid = update.message.chat_id
+	message_dict = update.message.to_dict()
+	event_name = update.message.text
+	botan.track(botan_token, uid, message_dict, event_name)
+
 	db.database().save_user_mess([update.message.chat_id, update.message.text, strftime("%Y-%m-%d %H:%M:%S")])
 
 	if update.message.text == 'Новое':
 		text = news.get_random_news()
+		smiles_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("👍", callback_data="Like"), 
+			InlineKeyboardButton("❤", callback_data="Love"), InlineKeyboardButton("😂", callback_data="Haha"),
+			InlineKeyboardButton("😊", callback_data="Yay"), InlineKeyboardButton("😱", callback_data="Wow"),
+			InlineKeyboardButton("😩", callback_data="Sad"),InlineKeyboardButton("😡", callback_data="Angry")]])
 		bot.sendMessage(chat_id=update.message.chat_id, text = text, parse_mode='html', disable_web_page_preview=1,
-			reply_markup=keyboard)
+			reply_markup=smiles_keyboard)
 
 	elif update.message.text == 'Главное':
 		headers = news.get_hot_news()
-		more_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Еще", callback_data='More')]])
+		more_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Еще...", callback_data='More')]])
 		bot.sendMessage(chat_id=update.message.chat_id, text = headers, reply_markup=more_keyboard, parse_mode='html',
 			disable_web_page_preview=1)
 
 	elif update.message.text == '🎲🎲':
-		text = news.get_rare()
+		text = news.get_rare(chat_id=update.message.chat_id)
+		smiles_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("👍", callback_data="Like"), 
+			InlineKeyboardButton("❤", callback_data="Love"), InlineKeyboardButton("😂", callback_data="Haha"),
+			InlineKeyboardButton("😊", callback_data="Yay"), InlineKeyboardButton("😱", callback_data="Wow"),
+			InlineKeyboardButton("😩", callback_data="Sad"),InlineKeyboardButton("😡", callback_data="Angry")]])
 		bot.sendMessage(chat_id=update.message.chat_id, text = text, parse_mode='html',
-			disable_web_page_preview=1, reply_markup=keyboard)
+			disable_web_page_preview=1, reply_markup=smiles_keyboard)
 
 
 def button(bot, update):
-	headers = news.get_other_hot_news()
-	bot.sendMessage(chat_id=update.callback_query.message.chat.id, text = headers, reply_markup=keyboard, parse_mode='html',
-		disable_web_page_preview=1)
+	if update.callback_query.data == 'More':
+		headers = news.get_other_hot_news()
+		bot.editMessageReplyMarkup(chat_id=update.callback_query.message.chat.id,
+			message_id=update.callback_query.message.message_id, reply_markup='')
+		bot.sendMessage(chat_id=update.callback_query.message.chat.id, text = headers, reply_markup=keyboard, parse_mode='html',
+			disable_web_page_preview=1)
+	else:
+		bot.editMessageReplyMarkup(chat_id=update.callback_query.message.chat.id,
+			message_id=update.callback_query.message.message_id, reply_markup='')
 
 
 def update_all(bot, update):
@@ -67,9 +89,9 @@ def update_all(bot, update):
 def good_morning(bot, update):
 	user_ids = db.database().get_user_ids()
 	for user_id in user_ids:
-		bot.sendMessage(chat_id=user_id[0], text=tools.good_morning(), reply_markup=keyboard, parse_mode='html',
+		more_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Еще...", callback_data='More')]])
+		bot.sendMessage(chat_id=user_id[0], text=tools.good_morning(), reply_markup=more_keyboard, parse_mode='html',
 			disable_web_page_preview=1)
-
 
 def main():
 	with open('config.json', 'r') as file:

@@ -23,16 +23,9 @@ def send_news():
 	encoders.encode_base64(part2)
 
 	part2.add_header('Content-Disposition', 'attachment; filename="news.csv"')
-#####
-	part3 = MIMEBase('application', "octet-stream")
-	part3.set_payload(open("db.sqlite", "rb").read())
-	encoders.encode_base64(part3)
-
-	part3.add_header('Content-Disposition', 'attachment; filename="db.sqlite"')
 
 	msg.attach(part)
 	msg.attach(part2)
-	msg.attach(part3)
 
 	server = smtplib.SMTP('smtp.gmail.com:587')
 	server.starttls()

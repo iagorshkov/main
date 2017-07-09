@@ -1,19 +1,31 @@
 from collections import Counter
 from datetime import datetime
-import sqlite3
+import psycopg2
 from time import strftime
+import json
 
-DB_LOCATION = 'db.sqlite'
+with open('config.json', 'r') as file:
+	text = file.read()
+	DB_HOST = json.loads(text)['DB_HOST']
+	DB_NAME = json.loads(text)['DB_NAME']
+	DB_USER = json.loads(text)['DB_USER']
+	DB_PASSWORD = json.loads(text)['DB_PASSWORD']
+
+DB_HOST = "ec2-23-21-220-48.compute-1.amazonaws.com"
+DB_NAME = "d73bdkrptlb9je"
+DB_USER = "dgpbnpnqukrzzo"
+DB_PASSWORD = "1be32a7d449ca8a9a2208ccaa6f48223326c9759e941a17f2b9117e8c632e701"
 
 class database:
 
-	def __init__(self, location=DB_LOCATION):
-		self.connection = sqlite3.connect(location)
+	def __init__(self):
+		self.connection = psycopg2.connect(host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD)
 		self.cursor = self.connection.cursor()
 
 
 	def save_user_mess(self, row):
-		self.cursor.execute("INSERT INTO user_messages VALUES (NULL, '%d', '%s', '%s');" % (row[0], row[1], row[2]))
+		self.cursor.execute("INSERT INTO user_messages (chat_id, mess, time) VALUES ('%d', '%s', '%s');" % (row[0], row[1], 
+			row[2]))
 		self.connection.commit()
 		self.connection.close()
 
@@ -28,7 +40,7 @@ class database:
 		result = 'Total requests:\n' + ("\n".join(['{}: {} times'.format(k,v) for k,v in sorted(counts.items())]))
 
 		#2) history for 24 hours
-		self.cursor.execute("SELECT * FROM user_messages WHERE time > date('now','-1 day') AND chat_id=%d" % chat_id)
+		self.cursor.execute("SELECT * FROM user_messages WHERE time > NOW() - INTERVAL '1 day' AND chat_id=%d" % chat_id)
 		rows = self.cursor.fetchall()
 		messages = [query[2] for query in rows]
 		counts = Counter(messages)
@@ -49,11 +61,11 @@ def remind(bot,job):
 	TIME_PASSED = 21600
 
 	db = database()
-	db.cursor.execute('SELECT chat_id, max(time) as max_time from user_messages WHERE mess != "" group by chat_id;')
+	db.cursor.execute('SELECT chat_id, max(time) as max_time from user_messages group by chat_id;')
 	rows = db.cursor.fetchall()
 	curr_time = datetime.now()
 	for row in rows:
-		datediff = curr_time - datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")
+		datediff = curr_time - row[1]
 		if datediff.days == 0:
 			if (datediff.seconds >= TIME_PASSED) and (datediff.seconds < TIME_PASSED + INTERVAL):
 				result = "У меня появились свежие новости! Приходи почитать! ✌✌✌"
