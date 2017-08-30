@@ -1,6 +1,5 @@
 import db
 import news
-import news_dump
 import os
 import tools
 import json
@@ -25,20 +24,13 @@ def get_stat(bot, update):
 	bot.sendMessage(chat_id=update.message.chat_id, text=db.database().get_chat_stat(update.message.chat_id), reply_markup=keyboard)
 
 
-def do_news_dump(bot, update):
-	user_id = update.message.chat_id
-	if user_id == 451162:
-		news_dump.send_news()
-		bot.sendMessage(chat_id=user_id, text='Successful')
-
-
 def messages(bot, update):
 
-	#with open('config.json', 'r') as file:
-	#	botan_token = json.loads(file.read())['botan_token']
-	#uid = update.message.chat_id
-	#message_dict = update.message.to_dict()
-	#event_name = update.message.text
+	with open('config.json', 'r') as file:
+		botan_token = json.loads(file.read())['botan_token']
+	uid = update.message.chat_id
+	message_dict = update.message.to_dict()
+	event_name = update.message.text
 	#botan.track(botan_token, uid, message_dict, event_name)
 
 	db.database().save_user_mess([update.message.chat_id, update.message.text, strftime("%Y-%m-%d %H:%M:%S")])
@@ -86,6 +78,10 @@ def update_all(bot, update):
 	news.set_hot_news()
 
 
+def get_news(bot, update):
+	bot.send_document(chat_id=update.message.chat_id, document=open('data/news.csv', 'rb'))
+
+
 def good_morning(bot, update):
 	user_ids = db.database().get_user_ids()
 	for user_id in user_ids:
@@ -101,7 +97,7 @@ def main():
 	
 	dispatcher.add_handler(CommandHandler('start', start))
 	dispatcher.add_handler(CommandHandler('stat', get_stat))
-	dispatcher.add_handler(CommandHandler('dump', do_news_dump))
+	dispatcher.add_handler(CommandHandler('get_news', get_news))
 	dispatcher.add_handler(MessageHandler(Filters.text, messages))
 	dispatcher.add_handler(CallbackQueryHandler(button))
 

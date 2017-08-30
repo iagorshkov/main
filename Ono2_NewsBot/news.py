@@ -14,6 +14,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from newspaper import Article
 import re
 import botan
+from tqdm import tqdm
 
 
 NEWS_LOCATION = 'data/news.csv'
@@ -82,11 +83,6 @@ def parse_rss(rss_url):
 
 def upd_news():
 	print('updating news...')
-	try:
-		news_file = pd.read_csv(NEWS_LOCATION, header=0)
-	except:
-		news_file = pd.DataFrame(columns=['header', 'header_preproc', 'link', 'text', 'text_preproc', 'date', 'source',
-			'full_text', 'full_text_preproc'])
 
 	meduza_news = parse_rss('https://meduza.io/rss/news')
 	interfax_news = parse_rss('http://interfax.ru/rss.asp')
@@ -95,12 +91,16 @@ def upd_news():
 	rambler_news = parse_rss('https://news.rambler.ru/rss/head/')
 	russia_today_news = parse_rss('https://russian.rt.com/rss')
 	vedomosti_news = parse_rss('https://vedomosti.ru/rss/news')
-
 	total_news = tass_news + vedomosti_news + lenta_news + meduza_news + interfax_news + rambler_news + russia_today_news
-	counter = 0
-	for c, news in enumerate(total_news):
-		if not news[2] in news_file['link'].values:
-			if datetime.now() - datetime.strptime(news[5], "%d %b %Y %H:%M:%S") < timedelta(days=1):
+
+	database = db.database()
+	database.cursor.execute('select link from news;')
+	links = database.cursor.fetchall()
+	links = [link[0] for link in links]
+	new_news = []
+	for c, news in tqdm(enumerate(total_news)):
+		if datetime.now() - datetime.strptime(news[5], "%d %b %Y %H:%M:%S") < timedelta(days=1):
+			if not news[2] in links:
 				article = Article(news[2], language='ru')
 				article.download()
 				try:
@@ -109,36 +109,29 @@ def upd_news():
 					pass
 				news.append(article.text)
 				news.append(normal_form(article.text))
-				if (('cluster' in news_file.columns) & ('hot_topic' in news_file.columns)):
-					news += [0,0]
-				news_file.loc[len(news_file)]=news
-				counter += 1
+				news += [0,0]
+				new_news.append(news)
 
-	news_file.drop_duplicates('link', inplace = True)
-	news_file['date'] = news_file['date'].astype('str')
-	news_file = news_file[[len(date) > 7 for date in news_file['date'].values]]
-	news_file['date'] = pd.to_datetime(news_file['date'])
-	news_file['date'] = pd.to_datetime(news_file['date'])
-	news_file = news_file[news_file['date'] > datetime.now() - timedelta(days=1)]
+	print('pasting in db...')
+	database.connection.commit()
+	database.connection.close()
+	database = db.database()
+	for news in tqdm(new_news):
+		if not database.if_news_exists(news[2]):
+			try:
+				database.save_news(news)
+				database.connection.commit()
+			except:
+				pass
 
-	news_file.to_csv(NEWS_LOCATION, index=False)
-	print('Added %d news' % counter)
-
-	try:
-		all_time_news_file = pd.read_csv('data/all_data.csv', header=0)
-	except:
-		all_time_news_file = pd.DataFrame(columns=['header', 'header_preproc', 'link', 'text', 'text_preproc', 'date', 'source',
-			'full_text', 'full_text_preproc'])
-	all_time_news_file = all_time_news_file.append(news_file)
-	all_time_news_file.drop_duplicates('link', inplace = True)
-	all_time_news_file['date'] = pd.to_datetime(all_time_news_file['date'])
-	all_time_news_file.to_csv('data/all_data.csv', index=False)
-	print('news updated')
+	database.delete_old_news()
 
 
 def get_hot_news():
-	df = pd.read_csv('data/news.csv', header=0)
-	hot = df[df['hot_topic'] > 3].sort_values('hot_topic', ascending=False).values
+	database = db.database()
+	database.cursor.execute('select * from news where hot_topic>3 order by hot_topic desc;')
+	hot = database.cursor.fetchall()
+	database.connection.close()
 	news = []
 	for c in range(len(hot)):
 		news_start, news_other = represent_news(hot[c][0])
@@ -147,8 +140,10 @@ def get_hot_news():
 
 
 def get_other_hot_news():
-	df = pd.read_csv('data/news.csv', header=0)
-	hot = df[(df['hot_topic'] < 4) & (df['hot_topic'] > 0)].sort_values('hot_topic', ascending=False).values
+	database = db.database()
+	database.cursor.execute('select * from news where hot_topic>0 and hot_topic<4 order by hot_topic desc;')
+	hot = database.cursor.fetchall()
+	database.connection.close()
 	news = []
 	for c in range(len(hot)):
 		news_start, news_other = represent_news(hot[c][0])
@@ -157,29 +152,28 @@ def get_other_hot_news():
 
 
 def update_clusters():
-	df = pd.read_csv('data/news.csv')
-	df = df.fillna('')
-	df['date'] = pd.to_datetime(df['date'])
-	headers = df['header'].values
-	norm_texts = (df['header_preproc'] + df['text_preproc'] + df['full_text_preproc']).values
-
+	news = np.array(db.database().get_news())
+	norm_texts = (news[:,1] + ' ' + news[:,4] + ' ' + news[:,8])
 	for c in range(len(norm_texts)):
 		norm_texts[c] = norm_texts[c].replace('\xa0', ' ')
 	tf = TfidfVectorizer()
 	texts_transformed = tf.fit_transform(norm_texts)
-	
+
 	Z = linkage(texts_transformed.todense(), 'ward')
 	clusters = fcluster(Z, 1.4, criterion='distance')
-	for c in np.unique(clusters):
-		df.loc[clusters == c, 'cluster'] = c
-	df.to_csv(NEWS_LOCATION, index=False)
+	database = db.database()
+	for c in range(len(news)):
+		database.update_news_cluster(news[c][2], clusters[c])
+	database.connection.commit()
+	database.connection.close()
+
 	print('clusters updated')
 
 
 def set_hot_news():
-	df = pd.read_csv('data/news.csv')
-	df['date'] = pd.to_datetime(df['date'])
-	df['hot_topic'] = 0
+	news = np.array(db.database().get_news())
+	df = pd.DataFrame(news, columns=['header', 'header_preproc', 'link', 'text', 'text_preproc', 'date', 'source',
+		'full_text', 'full_text_preproc', 'cluster', 'hot_topic'])
 	cluster_sizes = df.groupby('cluster').count()['header'].values
 	avg_time = []
 	sources = []
@@ -189,9 +183,12 @@ def set_hot_news():
 	time_ind = np.array(avg_time)/max(avg_time)
 	news_rate = np.array(cluster_sizes) * np.array((3-time_ind))*(1+np.array(sources)/7)
 	clust_rating = np.argsort(news_rate)[::-1] + 1
+	database = db.database()
+	database.cursor.execute('update news set hot_topic=0;')
 	for i, cluster in enumerate((clust_rating[:10])):
-		df.set_value(df[df['header'] == (get_cl(df[df['cluster'] == cluster]['header'].values))].index.values[0], 'hot_topic', 10-i)
-	df.to_csv(NEWS_LOCATION, index=False)
+		database.cursor.execute("UPDATE news SET hot_topic = %d WHERE link='%s'" % (10-i, get_cl(df[df['cluster'] == cluster]['link'].values)))
+	database.connection.commit()
+	database.connection.close()
 	print('hot news updated')
 
 
@@ -224,10 +221,12 @@ def distance(a, b):
 
 
 def get_random_news():
-	news_file = pd.read_csv(NEWS_LOCATION, header=0)
-	news_file['date'] = pd.to_datetime(news_file['date'])
-	news_file = news_file.sort_values('date', ascending=False).head(30)
-	rand_news = news_file.sample().values[0]
+	database = db.database()
+	database.cursor.execute('SELECT * from news order by date desc limit 30;')
+	last_news = database.cursor.fetchall()
+	database.connection.close()
+	rand_news = last_news[np.random.randint(0,30)]
+
 	news_start, news_other = represent_news(rand_news[0])
 	news_words = rand_news[7].split()
 	full_text = '    ' + ' '.join(news_words[:100])
@@ -238,15 +237,17 @@ def get_random_news():
 
 
 def get_rare(chat_id=None):
-	df = pd.read_csv(NEWS_LOCATION, header=0)
-	df = df.fillna('')
-	df = df[~df['text'].str.contains('Порошенко|Украин|Трамп')]
-	df['date'] = pd.to_datetime(df['date'])
-	rand_news =  df[df['cluster'] == choice(np.argsort(np.unique(df['cluster'].values, return_counts=True)[1])[:10])].sample().values[0]
+	database = db.database()
+	database.cursor.execute('SELECT cluster from (SELECT count(*) as count, cluster from news GROUP BY cluster order BY count LIMIT 10) as t1;')
+	clusters = database.cursor.fetchall()
+	clusters = [cluster[0] for cluster in clusters]
+	rand_cluster = np.random.choice(clusters)
+	database.cursor.execute('select * from news where cluster=%d limit 1;' % rand_cluster)
+	rand_news = list(database.cursor.fetchall()[0])
 	news_start, news_other = represent_news(rand_news[0])
 	news_words = rand_news[7].split()
 	full_text = '    ' + ' '.join(news_words[:100])
 	if len(news_words) > 100:
 		full_text += '... <a href="%s">Читать далее</a>' % (rand_news[2])
 	return '🆕 %s, %s: <a href="%s">%s</a> %s \n\n%s' % (rand_news[5].strftime('%Y-%m-%d %H:%M'), rand_news[6],
-		rand_news[2], news_start, news_other,  full_text)
+		rand_news[2], news_start, news_other, full_text)
