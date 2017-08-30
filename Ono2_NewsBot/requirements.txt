@@ -1,0 +1,10 @@
+beautifulsoup4==4.4.1
+pymorphy2==0.8
+nltk==3.2.2
+requests
+pandas
+scipy
+git+git://github.com/codelucas/newspaper.git
+python-telegram-bot
+urllib3
+psycopg2
